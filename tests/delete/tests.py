@@ -8,6 +8,7 @@ from django.test import TestCase, skipIfDBFeature, skipUnlessDBFeature
 from .models import (
     MR, A, Avatar, Base, Child, HiddenUser, HiddenUserProfile, M, M2MFrom,
     M2MTo, MRNull, Parent, R, RChild, S, T, User, create_a, get_default_r,
+    CascadeToFieldChild, CascadeToFieldGrandchild, CascadeToFieldParent,
 )
 
 
@@ -140,6 +141,57 @@ class OnDeleteTests(TestCase):
 
 
 class DeletionTests(TestCase):
+
+    def test_cascade_to_non_primary_key_field(self):
+        parent = CascadeToFieldParent.objects.create(code='parent')
+        child = CascadeToFieldChild.objects.create(
+            code='child', parent=parent, payload='payload',
+        )
+        CascadeToFieldGrandchild.objects.create(child=child)
+
+        parent.delete()
+
+        self.assertFalse(CascadeToFieldChild.objects.exists())
+        self.assertFalse(CascadeToFieldGrandchild.objects.exists())
+
+    @skipUnlessDBFeature('supports_transactions')
+    def test_cascade_doesnt_load_unrelated_invalid_text(self):
+        if connection.vendor != 'sqlite':
+            self.skipTest('SQLite decodes invalid bytes in text columns on fetch.')
+        parent = CascadeToFieldParent.objects.create(code='parent')
+        child = CascadeToFieldChild.objects.create(
+            code='child', parent=parent, payload='payload',
+        )
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'UPDATE delete_cascadetofieldchild SET payload = %s WHERE id = %s',
+                [b'\xff', child.pk],
+            )
+
+        parent.delete()
+        self.assertFalse(CascadeToFieldChild.objects.exists())
+
+    def test_cascade_delete_signal_loads_all_fields(self):
+        parent = CascadeToFieldParent.objects.create(code='parent')
+        child = CascadeToFieldChild.objects.create(
+            code='child', parent=parent, payload='payload',
+        )
+        payloads = []
+
+        def check_payload(sender, instance, **kwargs):
+            payloads.append(instance.payload)
+
+        models.signals.pre_delete.connect(
+            check_payload, sender=CascadeToFieldChild,
+        )
+        try:
+            parent.delete()
+        finally:
+            models.signals.pre_delete.disconnect(
+                check_payload, sender=CascadeToFieldChild,
+            )
+
+        self.assertEqual(payloads, ['payload'])
 
     def test_m2m(self):
         m = M.objects.create()

@@ -218,6 +218,25 @@ class Collector:
                 batches = self.get_del_batches(new_objs, field)
                 for batch in batches:
                     sub_objs = self.related_objects(related, batch)
+                    # The collector only needs the primary key and any fields
+                    # referenced by foreign keys on this model to continue
+                    # collecting cascades. Keep all fields loaded when delete
+                    # signal receivers may inspect the instances.
+                    if not (signals.pre_delete.has_listeners(related.related_model) or
+                            signals.post_delete.has_listeners(related.related_model)):
+                        field_names = {related.related_model._meta.pk.attname}
+                        field_names.update(
+                            field.attname
+                            for relation in get_candidate_relations_to_delete(
+                                related.related_model._meta
+                            )
+                            for field in relation.field.foreign_related_fields
+                        )
+                        field_names.update(
+                            ptr.attname for ptr in
+                            related.related_model._meta.parents.values() if ptr
+                        )
+                        sub_objs = sub_objs.select_related(None).only(*field_names)
                     if self.can_fast_delete(sub_objs, from_field=field):
                         self.fast_deletes.append(sub_objs)
                     elif sub_objs:
