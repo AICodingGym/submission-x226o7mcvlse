@@ -128,19 +128,3 @@ class RelToBase(models.Model):
     base = models.ForeignKey(Base, models.DO_NOTHING)
 
 
-class CascadeToFieldParent(models.Model):
-    code = models.CharField(max_length=10, unique=True)
-
-
-class CascadeToFieldChild(models.Model):
-    code = models.CharField(max_length=10, unique=True)
-    parent = models.ForeignKey(
-        CascadeToFieldParent, models.CASCADE, to_field='code',
-    )
-    payload = models.TextField()
-
-
-class CascadeToFieldGrandchild(models.Model):
-    child = models.ForeignKey(
-        CascadeToFieldChild, models.CASCADE, to_field='code',
-    )
